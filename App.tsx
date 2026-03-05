@@ -1,6 +1,11 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppNavigator } from '@/navigation/AppNavigator';
+
+if (Platform.OS === 'web') {
+  require('./src/global.css');
+}
 
 // Create a client
 const queryClient = new QueryClient({
