@@ -179,7 +179,7 @@ export function generateCycleSummary(
   let totalExpense = 0;
 
   transactions.forEach(t => {
-    if (t.type === 'transfer') return;
+    if (t.type === 'transfer' || t.type === 'investment') return;
     
     if (t.type === 'income') {
       totalIncome += t.amount;

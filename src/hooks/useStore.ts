@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Transaction, Bank, Cycle, AppConfig, Category, SyncState } from '@/types';
+import type { Transaction, Bank, Cycle, AppConfig, Category, SyncState, InvestmentDistribution } from '@/types';
 import { mockTransactions, mockCycles, mockBanks, mockCategories } from '@/data/mockData';
 
 const STORAGE_KEYS = {
@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   cycles: '@expense-tracker/cycles',
   config: '@expense-tracker/config',
   syncState: '@expense-tracker/sync-state',
+  investmentDistributions: '@expense-tracker/investment-distributions',
 };
 
 // Query keys
@@ -16,6 +17,7 @@ export const queryKeys = {
   cycles: 'cycles',
   config: 'config',
   syncState: 'syncState',
+  investmentDistributions: 'investmentDistributions',
 };
 
 // Default config
@@ -216,5 +218,47 @@ export function useSync() {
     isLoading,
     sync: sync.mutate,
     isSyncing: sync.isPending,
+  };
+}
+
+// Hook for investment distributions
+export function useInvestmentDistributions() {
+  const queryClient = useQueryClient();
+
+  const { data: distributions = [], isLoading } = useQuery({
+    queryKey: [queryKeys.investmentDistributions],
+    queryFn: () => loadFromStorage<InvestmentDistribution[]>(STORAGE_KEYS.investmentDistributions, []),
+  });
+
+  const addDistribution = useMutation({
+    mutationFn: async (dist: InvestmentDistribution) => {
+      const current = await loadFromStorage<InvestmentDistribution[]>(STORAGE_KEYS.investmentDistributions, []);
+      const updated = [...current, dist];
+      await saveToStorage(STORAGE_KEYS.investmentDistributions, updated);
+      return updated;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData([queryKeys.investmentDistributions], data);
+    },
+  });
+
+  const deleteDistribution = useMutation({
+    mutationFn: async (id: string) => {
+      const current = await loadFromStorage<InvestmentDistribution[]>(STORAGE_KEYS.investmentDistributions, []);
+      const updated = current.filter(d => d.id !== id);
+      await saveToStorage(STORAGE_KEYS.investmentDistributions, updated);
+      return updated;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData([queryKeys.investmentDistributions], data);
+    },
+  });
+
+  return {
+    distributions,
+    isLoading,
+    addDistribution: addDistribution.mutate,
+    deleteDistribution: deleteDistribution.mutate,
+    isAdding: addDistribution.isPending,
   };
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
-import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, Wallet, Sparkles, Lock } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, Wallet, Sparkles, Lock, ArrowRight } from 'lucide-react-native';
 import { TransactionCard } from './TransactionCard';
 import type { Transaction, Cycle, Bank, Category, CycleSummary } from '@/types';
 import { formatCurrency, getCycleLabel } from '@/lib/utils';
@@ -13,6 +13,7 @@ interface CycleCardProps {
   categories: Category[];
   onCloseCycle?: () => void;
   onEditNotes?: (transaction: Transaction) => void;
+  onViewDetail?: () => void;
 }
 
 export function CycleCard({ 
@@ -23,6 +24,7 @@ export function CycleCard({
   categories, 
   onCloseCycle,
   onEditNotes,
+  onViewDetail,
 }: CycleCardProps) {
   const [isExpanded, setIsExpanded] = useState(!cycle.isClosed);
 
@@ -96,6 +98,18 @@ export function CycleCard({
             </View>
           </View>
         </TouchableOpacity>
+
+        {/* View Detail Button */}
+            {onViewDetail && (
+              <TouchableOpacity
+                onPress={onViewDetail}
+                activeOpacity={0.8}
+                className="mx-4 mb-4 flex-row items-center justify-center gap-2 bg-violet-600 rounded-xl py-3"
+              >
+                <Text className="text-white font-semibold text-sm">Lihat Detail Siklus</Text>
+                <ArrowRight size={16} color="white" />
+              </TouchableOpacity>
+            )}
 
         {/* Expanded Content */}
         {isExpanded && (

@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppNavigator } from '@/navigation/AppNavigator';
+import { AuthProvider } from '@/context/AuthContext';
 
 if (Platform.OS === 'web') {
   require('./src/global.css');
@@ -20,7 +21,9 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppNavigator />
+      <AuthProvider>
+        <AppNavigator />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

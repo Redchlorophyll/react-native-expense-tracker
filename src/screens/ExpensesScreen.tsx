@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Upload } from 'lucide-react-native';
 import { CycleCard } from '@/components/CycleCard';
-import { EditNotesModal } from '@/components/EditNotesModal';
-import { SyncButton } from '@/components/SyncButton';
-import type { Transaction } from '@/types';
+import { TransactionDetailModal } from '@/components/TransactionDetailModal';
+import type { Transaction, RootStackParamList } from '@/types';
 import { 
   useTransactions, 
   useCycles, 
   useConfig, 
-  useSync 
 } from '@/hooks/useStore';
 import { 
   groupTransactionsByCycle, 
@@ -20,11 +21,10 @@ import {
 } from '@/lib/utils';
 
 export function ExpensesScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { transactions, updateTransaction } = useTransactions();
   const { cycles, updateCycle } = useCycles();
   const { config } = useConfig();
-  const { syncState, sync, isSyncing } = useSync();
-  
   const [refreshing, setRefreshing] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -76,14 +76,13 @@ export function ExpensesScreen() {
     setIsEditModalVisible(true);
   };
 
-  const handleSaveNotes = (id: string, notes: string) => {
-    updateTransaction({ id, updates: { notes } });
+  const handleSaveNotes = (id: string, updates: Partial<Transaction>) => {
+    updateTransaction({ id, updates });
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
     setRefreshing(true);
-    await sync();
-    setRefreshing(false);
+    setTimeout(() => setRefreshing(false), 600);
   };
 
   return (
@@ -97,7 +96,13 @@ export function ExpensesScreen() {
             <Text className="text-2xl font-bold text-white">Expense Tracker</Text>
             <Text className="text-violet-200 text-sm">Kelola keuangan Anda</Text>
           </View>
-          <SyncButton syncState={syncState} onSync={sync} />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('StatementUpload')}
+            style={{ padding: 8 }}
+            activeOpacity={0.7}
+          >
+            <Upload size={22} color="white" />
+          </TouchableOpacity>
         </View>
 
         {/* Quick Stats */}
@@ -125,10 +130,10 @@ export function ExpensesScreen() {
 
       {/* Cycles List */}
       <ScrollView 
-        className="flex-1 px-4 py-4"
+        className="flex-1"
         refreshControl={
           <RefreshControl
-            refreshing={refreshing || isSyncing}
+            refreshing={refreshing}
             onRefresh={handleRefresh}
             tintColor="#8b5cf6"
           />
@@ -144,14 +149,17 @@ export function ExpensesScreen() {
             categories={config.categories}
             onCloseCycle={() => handleCloseCycle(cycle.id)}
             onEditNotes={handleEditNotes}
+            onViewDetail={() => navigation.navigate('CycleDetail', { cycleId: cycle.id })}
           />
         ))}
       </ScrollView>
 
       {/* Edit Notes Modal */}
-      <EditNotesModal
+      <TransactionDetailModal
         isVisible={isEditModalVisible}
         transaction={editingTransaction}
+        categories={config.categories}
+        banks={config.banks}
         onClose={() => {
           setIsEditModalVisible(false);
           setEditingTransaction(null);

@@ -1,4 +1,4 @@
-import type { Transaction, Cycle, Bank, Category } from '@/types';
+import type { Transaction, Cycle, Bank, Category, CycleSource } from '@/types';
 
 export const mockBanks: Bank[] = [
   { 
@@ -59,6 +59,7 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 15000000,
     description: 'Gaji Bulan Januari',
     fromBankId: 'bank-1',
+    fromAccountName: 'Dhonni AHS',
     type: 'income',
     category: 'Gaji',
     date: '2025-01-25',
@@ -69,6 +70,7 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 3500000,
     description: 'Project Freelance Website',
     fromBankId: 'bank-2',
+    fromAccountName: 'Dhonni AHS',
     type: 'income',
     category: 'Freelance',
     date: '2025-02-05',
@@ -100,6 +102,9 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 1200000,
     description: 'Makan di Luar',
     fromBankId: 'bank-1',
+    fromAccountName: 'Dhonni AHS',
+    toPaymentMethod: 'QRIS',
+    toAccountName: 'Warung Pak Budi',
     type: 'expense',
     category: 'Makanan',
     date: '2025-02-03',
@@ -110,6 +115,9 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 600000,
     description: 'Bensin Motor',
     fromBankId: 'bank-1',
+    fromAccountName: 'Dhonni AHS',
+    toPaymentMethod: 'QRIS',
+    toAccountName: '0081234567890',
     type: 'expense',
     category: 'Transportasi',
     date: '2025-02-08',
@@ -151,7 +159,9 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 2000000,
     description: 'Transfer ke Mandiri',
     fromBankId: 'bank-1',
+    fromAccountName: 'Dhonni AHS',
     toBankId: 'bank-2',
+    toAccountName: 'Dhonni AHS',
     type: 'transfer',
     category: 'Transfer',
     date: '2025-02-12',
@@ -164,7 +174,9 @@ export const mockTransactionsCycle1: Transaction[] = [
     amount: 2000000,
     description: 'Transfer dari BCA',
     fromBankId: 'bank-2',
+    fromAccountName: 'Dhonni AHS',
     toBankId: 'bank-1',
+    toAccountName: 'Dhonni AHS',
     type: 'transfer',
     category: 'Transfer',
     date: '2025-02-12',
@@ -182,6 +194,7 @@ export const mockTransactionsCycle2: Transaction[] = [
     amount: 15000000,
     description: 'Gaji Bulan Februari',
     fromBankId: 'bank-1',
+    fromAccountName: 'Dhonni AHS',
     type: 'income',
     category: 'Gaji',
     date: '2025-02-25',
@@ -192,6 +205,7 @@ export const mockTransactionsCycle2: Transaction[] = [
     amount: 5200000,
     description: 'Dividen Saham',
     fromBankId: 'bank-2',
+    fromAccountName: 'Dhonni AHS',
     type: 'income',
     category: 'Investasi',
     date: '2025-03-05',
@@ -253,6 +267,9 @@ export const mockTransactionsCycle2: Transaction[] = [
     amount: 1200000,
     description: 'Streaming & Game',
     fromBankId: 'bank-2',
+    fromAccountName: 'Dhonni AHS',
+    toPaymentMethod: 'Virtual Account',
+    toAccountName: 'Netflix / Spotify',
     type: 'expense',
     category: 'Hiburan',
     date: '2025-03-08',
@@ -325,3 +342,39 @@ export const mockTransactions: Transaction[] = [
 
 // Combine all cycles
 export const mockCycles: Cycle[] = [mockCycle1, mockCycle2];
+
+// Email / PDF sources per cycle (mock bank statement import metadata)
+export const mockCycleSources: Record<string, CycleSource[]> = {
+  'cycle-1': [
+    {
+      email: 'notifikasi@bca.co.id',
+      bankName: 'BCA',
+      reportDate: '2025-02-24',
+      pdfFileName: 'BCA_Statement_Jan25-Feb24_2025.pdf',
+      pdfSizeKb: 245,
+    },
+    {
+      email: 'info@bankmandiri.co.id',
+      bankName: 'Mandiri',
+      reportDate: '2025-02-24',
+      pdfFileName: 'Mandiri_Statement_Jan25-Feb24_2025.pdf',
+      pdfSizeKb: 189,
+    },
+  ],
+  'cycle-2': [
+    {
+      email: 'notifikasi@bca.co.id',
+      bankName: 'BCA',
+      reportDate: '2025-03-24',
+      pdfFileName: 'BCA_Statement_Feb25-Mar24_2025.pdf',
+      pdfSizeKb: 312,
+    },
+    {
+      email: 'info@bankmandiri.co.id',
+      bankName: 'Mandiri',
+      reportDate: '2025-03-24',
+      pdfFileName: 'Mandiri_Statement_Feb25-Mar24_2025.pdf',
+      pdfSizeKb: 201,
+    },
+  ],
+};
