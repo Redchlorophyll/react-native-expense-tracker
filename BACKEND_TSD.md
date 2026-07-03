@@ -19,31 +19,29 @@
 
 ## 1. Feature Summary
 
-The mobile app currently has five main domain areas that need backend support:
+The mobile app should be scoped into four business domains:
 
 | Domain | Current State | What the BE Must Do |
 |---|---|---|
-| **Auth** | Demo mode — any credentials accepted, OTP is a no-op | Real user accounts, hashed passwords, actual OTP via email, JWT sessions |
-| **Transactions** | Stored locally via AsyncStorage, seeded from mock data | Persist per-user, allow CRUD + notes update |
-| **Cycles** | Locally computed from cutoff day, stored in AsyncStorage | Persist per-user cycles, enforce cutoff day, auto-create new cycles |
-| **App Config** | Stored locally (banks list, categories, cutoff day) | Persist per-user configuration |
-| **Investment Distributions** | Stored locally | Persist per-user fund distributions |
-| **Bank Statement Upload** | Mock — returns static mock data | Parse user-uploaded PDF bank statements into transactions |
+| **`account`** | Demo mode — any credentials accepted, OTP is a no-op | Real user accounts, hashed passwords, actual OTP via email, session token + refresh token |
+| **`config`** | Stored locally (banks list, categories, cutoff day) | Persist per-user configuration |
+| **`investments`** | Stored locally | Persist per-user fund distributions |
+| **`expenses-tracker`** | Transactions/cycles/uploads are local or mock | Persist transactions and cycles; parse uploaded bank statements into transactions |
 
 ### Auth Flow (diagram)
 
 ```
 Register
-  App: POST /auth/register { username, email, password }
+  App: POST /account/register { username, email, password }
   BE:  validate → hash password → create user (unverified) → send OTP email
-  App: POST /auth/verify-otp { email, otp, mode: "register" }
-  BE:  validate OTP → mark user verified → return { accessToken, refreshToken, user }
+  App: POST /account/verify-otp { email, otp, mode: "register" }
+  BE:  validate OTP → mark user verified → return { sessionToken, refreshToken, user }
 
 Login
-  App: POST /auth/login { emailOrUsername, password }
+  App: POST /account/login { emailOrUsername, password }
   BE:  validate credentials → send OTP email → return { message: "OTP sent" }
-  App: POST /auth/verify-otp { email, otp, mode: "login" }
-  BE:  validate OTP → return { accessToken, refreshToken, user }
+  App: POST /account/verify-otp { email, otp, mode: "login" }
+  BE:  validate OTP → return { sessionToken, refreshToken, user }
 ```
 
 ---
@@ -169,19 +167,52 @@ created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 
 ## 3. API Endpoints
 
-**Base URL:** `https://api.your-domain.com/v1`  
-**Auth:** Bearer JWT in `Authorization` header for all protected routes.  
+**Base URL:** `https://your-service-domain.com/api/v1`  
+**Auth:** Session token (HTTP-only cookie) for protected routes. Keep refresh token in secure storage and rotate on refresh.  
 **Response envelope:**
 ```json
 { "data": { ... }, "error": null }
 { "data": null, "error": { "code": "VALIDATION_ERROR", "message": "..." } }
 ```
 
+**Endpoint Naming Convention**
+- Domain-first prefix: `/account/*`, `/config/*`, `/investments/*`, `/expenses-tracker/*`
+- Use kebab-case for domain and multi-word path segments
+- Use plural resources for collections (`/transactions`, `/cycles`, `/distributions`, `/statements`)
+- Use `/:id` for single-resource operations
+
+### Endpoint Index
+
+| Domain | Method | Endpoint | Purpose |
+|---|---|---|---|
+| `account` | POST | `/account/register` | Register account and send OTP |
+| `account` | POST | `/account/login` | Validate credentials and send OTP |
+| `account` | POST | `/account/verify-otp` | Verify OTP and create session |
+| `account` | POST | `/account/otp/resend` | Resend OTP |
+| `account` | POST | `/account/token/refresh` | Rotate refresh token and renew session |
+| `account` | POST | `/account/logout` | Revoke refresh token |
+| `account` | GET | `/account/me` | Get current account profile |
+| `account` | PATCH | `/account/password` | Change password |
+| `config` | GET | `/config` | Fetch banks, categories, cutoff day |
+| `config` | PUT | `/config/banks` | Replace bank list |
+| `config` | PATCH | `/config/cutoff-day` | Update cutoff day |
+| `investments` | GET | `/investments/distributions` | List investment distributions |
+| `investments` | POST | `/investments/distributions` | Create distribution |
+| `investments` | DELETE | `/investments/distributions/:id` | Delete distribution |
+| `expenses-tracker` | GET | `/expenses-tracker/transactions` | List transactions |
+| `expenses-tracker` | PATCH | `/expenses-tracker/transactions/:id` | Update mutable transaction fields |
+| `expenses-tracker` | GET | `/expenses-tracker/cycles` | List cycles |
+| `expenses-tracker` | GET | `/expenses-tracker/cycles/:id` | Get cycle detail and summary |
+| `expenses-tracker` | PATCH | `/expenses-tracker/cycles/:id` | Close cycle |
+| `expenses-tracker` | GET | `/expenses-tracker/statements` | List statement upload jobs |
+| `expenses-tracker` | POST | `/expenses-tracker/statements` | Upload statement files |
+| `expenses-tracker` | GET | `/expenses-tracker/statements/jobs/:jobId` | Poll statement parse job |
+
 ---
 
-### 3.1 Authentication
+### 3.1 `account`
 
-#### `POST /auth/register`
+#### `POST /account/register`
 Register a new account. Sends OTP to the given email.
 
 **Request body:**
@@ -211,7 +242,7 @@ Register a new account. Sends OTP to the given email.
 
 ---
 
-#### `POST /auth/login`
+#### `POST /account/login`
 Validate credentials then send an OTP. Does **not** return a token yet.
 
 **Request body:**
@@ -236,7 +267,7 @@ Validate credentials then send an OTP. Does **not** return a token yet.
 
 ---
 
-#### `POST /auth/verify-otp`
+#### `POST /account/verify-otp`
 Verify the 6-digit OTP for both registration completion and login.
 
 **Request body:**
@@ -253,7 +284,7 @@ Verify the 6-digit OTP for both registration completion and login.
 ```json
 {
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "sessionToken": "f06b8eb6-c2d6-4f53-8adb-f85f2d4f3e7c",
     "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2g...",
     "user": {
       "id": "uuid",
@@ -268,7 +299,7 @@ Verify the 6-digit OTP for both registration completion and login.
 
 ---
 
-#### `POST /auth/otp/resend`
+#### `POST /account/otp/resend`
 Resend an OTP (rate-limited).
 
 **Request body:**
@@ -285,8 +316,8 @@ Resend an OTP (rate-limited).
 
 ---
 
-#### `POST /auth/token/refresh`
-Exchange a refresh token for a new access token.
+#### `POST /account/token/refresh`
+Exchange a refresh token for a new session token.
 
 **Request body:**
 ```json
@@ -297,7 +328,7 @@ Exchange a refresh token for a new access token.
 ```json
 {
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "sessionToken": "a57cf0d9-74c1-4211-a8b1-4b074a50a44a",
     "refreshToken": "newRefreshTokenHere..."
   }
 }
@@ -307,7 +338,7 @@ Exchange a refresh token for a new access token.
 
 ---
 
-#### `POST /auth/logout` 🔒
+#### `POST /account/logout` 🔒
 Revoke the current refresh token.
 
 **Request body:**
@@ -319,7 +350,7 @@ Revoke the current refresh token.
 
 ---
 
-#### `GET /auth/me` 🔒
+#### `GET /account/me` 🔒
 Get the current authenticated user.
 
 **Response `200 OK`:**
@@ -335,7 +366,7 @@ Get the current authenticated user.
 
 ---
 
-#### `PATCH /auth/password` 🔒
+#### `PATCH /account/password` 🔒
 Change the user's password.
 
 **Request body:**
@@ -355,9 +386,9 @@ Change the user's password.
 
 ---
 
-### 3.2 Transactions
+### 3.2 `expenses-tracker` / transactions
 
-#### `GET /transactions` 🔒
+#### `GET /expenses-tracker/transactions` 🔒
 List all transactions for the authenticated user.
 
 **Query params:**
@@ -405,7 +436,7 @@ List all transactions for the authenticated user.
 
 ---
 
-#### `PATCH /transactions/:id` 🔒
+#### `PATCH /expenses-tracker/transactions/:id` 🔒
 Update a transaction's mutable fields (notes, category, payment method labels).
 
 **Request body** (all fields optional):
@@ -429,9 +460,9 @@ Update a transaction's mutable fields (notes, category, payment method labels).
 
 ---
 
-### 3.3 Cycles
+### 3.3 `expenses-tracker` / cycles
 
-#### `GET /cycles` 🔒
+#### `GET /expenses-tracker/cycles` 🔒
 List all cycles for the user, newest first.
 
 **Response `200 OK`:**
@@ -452,8 +483,8 @@ List all cycles for the user, newest first.
 
 ---
 
-#### `GET /cycles/:id` 🔒
-Get a single cycle's metadata and pre-computed summary. Does **not** embed transactions — fetch those separately via `GET /transactions?cycleId=:id`.
+#### `GET /expenses-tracker/cycles/:id` 🔒
+Get a single cycle's metadata and pre-computed summary. Does **not** embed transactions — fetch those separately via `GET /expenses-tracker/transactions?cycleId=:id`.
 
 **Response `200 OK`:**
 ```json
@@ -476,11 +507,11 @@ Get a single cycle's metadata and pre-computed summary. Does **not** embed trans
 }
 ```
 
-> To load the transactions for a cycle, call `GET /transactions?cycleId=<id>` (supports pagination).
+> To load the transactions for a cycle, call `GET /expenses-tracker/transactions?cycleId=<id>` (supports pagination).
 
 ---
 
-#### `PATCH /cycles/:id` 🔒
+#### `PATCH /expenses-tracker/cycles/:id` 🔒
 Update a cycle — primarily used to **close** it.
 
 **Request body:**
@@ -503,7 +534,7 @@ Update a cycle — primarily used to **close** it.
 
 ---
 
-### 3.4 App Configuration
+### 3.4 `config`
 
 #### `GET /config` 🔒
 Get the user's full app configuration (banks, categories, cutoff day).
@@ -589,9 +620,9 @@ Change the cycle cutoff day. Takes effect after the current active cycle ends.
 
 ---
 
-### 3.5 Investment Distributions
+### 3.5 `investments`
 
-#### `GET /investment/distributions` 🔒
+#### `GET /investments/distributions` 🔒
 List the user's fund distributions.
 
 **Response `200 OK`:**
@@ -611,7 +642,7 @@ List the user's fund distributions.
 
 ---
 
-#### `POST /investment/distributions` 🔒
+#### `POST /investments/distributions` 🔒
 Add a new distribution entry.
 
 **Request body:**
@@ -632,20 +663,20 @@ Add a new distribution entry.
 
 ---
 
-#### `DELETE /investment/distributions/:id` 🔒
+#### `DELETE /investments/distributions/:id` 🔒
 Remove a distribution entry.
 
 **Response `204 No Content`**
 
 ---
 
-### 3.6 Bank Statement Upload
+### 3.6 `expenses-tracker` / statements
 
 Users manually upload PDF bank statements from their bank. The server parses the PDF, extracts transactions, and inserts them into the database. The raw PDF is deleted immediately after parsing (success or failure) — only the extracted transaction rows are persisted.
 
 ---
 
-#### `GET /statements` 🔒
+#### `GET /expenses-tracker/statements` 🔒
 List the user's past upload jobs (upload history).
 
 **Query params:**
@@ -682,7 +713,7 @@ List the user's past upload jobs (upload history).
 
 ---
 
-#### `POST /statements` 🔒
+#### `POST /expenses-tracker/statements` 🔒
 Upload one or more bank statement PDFs for parsing. Accepts a `multipart/form-data` request. Each file may optionally carry a PDF password (common for Indonesian bank statements such as BCA and Mandiri).
 
 **Request** (`multipart/form-data`):
@@ -725,7 +756,7 @@ Content-Disposition: form-data; name="passwords"
     "jobId": "job-uuid",
     "status": "processing",
     "filesReceived": 2,
-    "message": "PDFs queued for parsing. Poll GET /statements/jobs/:jobId for status."
+    "message": "PDFs queued for parsing. Poll GET /expenses-tracker/statements/jobs/:jobId for status."
   }
 }
 ```
@@ -736,7 +767,7 @@ Parsing is handled **asynchronously** (background job queue) because PDF extract
 
 ---
 
-#### `GET /statements/jobs/:jobId` 🔒
+#### `GET /expenses-tracker/statements/jobs/:jobId` 🔒
 Poll the status of an async PDF parse job.
 
 **Response `200 OK`:**
@@ -775,7 +806,7 @@ Poll the status of an async PDF parse job.
 ### 4.1 Registration Flow
 
 ```
-1. Client  → POST /auth/register { username, email, password }
+1. Client  → POST /account/register { username, email, password }
 2. Server:
    a. Validate fields (format, uniqueness)
    b. Hash password with bcrypt (cost factor ≥ 12)
@@ -783,7 +814,7 @@ Poll the status of an async PDF parse job.
    d. Generate cryptographically random 6-digit OTP
    e. Hash OTP with bcrypt and store in otp_codes with expires_at = NOW() + 10 min, mode = 'register'
    f. Send OTP email via transactional email provider (e.g. Resend, SendGrid)
-3. Client  → POST /auth/verify-otp { email, otp, mode: "register" }
+3. Client  → POST /account/verify-otp { email, otp, mode: "register" }
 4. Server:
    a. Find latest unused, unexpired OTP with mode = 'register' for that email
    b. Verify OTP against stored hash
@@ -791,25 +822,25 @@ Poll the status of an async PDF parse job.
    d. Set user.is_verified = true
    e. Create default app_config row (cutoff_day = 25)
    f. Seed default system categories for the user
-   g. Issue JWT access token (15 min TTL) + refresh token (30 days TTL)
+  g. Issue session token (2 days TTL) + refresh token (5 days TTL)
    h. Store hashed refresh token in refresh_tokens table
-   i. Return { accessToken, refreshToken, user }
+  i. Return { sessionToken, refreshToken, user }
 ```
 
 ### 4.2 Login Flow
 
 ```
-1. Client  → POST /auth/login { emailOrUsername, password }
+1. Client  → POST /account/login { emailOrUsername, password }
 2. Server:
    a. Resolve account by email or username
    b. Verify user exists and is_verified = true
    c. Compare password with bcrypt
    d. On success: generate OTP, hash & store, send email
    e. Return { email, message } — no token yet
-3. Client  → POST /auth/verify-otp { email, otp, mode: "login" }
+3. Client  → POST /account/verify-otp { email, otp, mode: "login" }
 4. Server:
    a. Validate OTP (same as step 4 of registration)
-   b. Issue access token + refresh token
+  b. Issue session token + refresh token
    c. Return tokens + user profile
 ```
 
@@ -817,14 +848,14 @@ Poll the status of an async PDF parse job.
 
 ```
 1. Client detects 401 on any request
-2. Client → POST /auth/token/refresh { refreshToken }
+2. Client → POST /account/token/refresh { refreshToken }
 3. Server:
    a. Hash incoming token and look up in refresh_tokens
    b. Verify not revoked and not expired
-   c. Issue new access token + rotate refresh token
+  c. Issue new session token + rotate refresh token
    d. Mark old refresh token as revoked
    e. Return new token pair
-4. Client retries original request with new access token
+4. Client retries original request with new session token
 ```
 
 ### 4.4 Cycle Auto-Creation
@@ -850,7 +881,7 @@ function ensureActiveCycle(userId):
   return cycle
 ```
 
-This runs on `GET /sync` and `GET /cycles`.
+This runs on `GET /expenses-tracker/sync` and `GET /expenses-tracker/cycles`.
 
 ### 4.5 Transfer Detection
 
@@ -891,12 +922,12 @@ Changing the cutoff day does not immediately affect the active cycle:
 
 | Risk | Mitigation |
 |---|---|
-| Brute-force login | Rate limit `/auth/login` to 5 attempts per email per 15 min; lock account for 15 min after 10 consecutive failures |
-| OTP guessing | Store OTP as **bcrypt hash**, not plaintext; 10-minute expiry; one-time use; rate-limit `/auth/otp/resend` to 3 per email per 10 min |
-| JWT secret leak | Use RS256 (asymmetric key pair) instead of HS256; store private key in a secrets manager (AWS Secrets Manager / Vault), not env vars |
-| Long-lived access | Access token TTL = **15 minutes**; refresh token TTL = **30 days** |
+| Brute-force login | Rate limit `/account/login` to 5 attempts per email per 15 min; lock account for 15 min after 10 consecutive failures |
+| OTP guessing | Store OTP as **bcrypt hash**, not plaintext; 10-minute expiry; one-time use; rate-limit `/account/otp/resend` to 3 per email per 10 min |
+| Session token leakage | Use `HttpOnly`, `Secure`, `SameSite=Lax` (or `Strict`) cookies; never expose session tokens to JS |
+| Long-lived sessions | Session token TTL = **2 days**; refresh token TTL = **5 days** (aligned with current personal-service behavior) |
 | Refresh token theft | Rotate refresh token on every use (issue new, revoke old); detect reuse of a revoked token as a compromise signal → revoke all tokens for that user |
-| Concurrent sessions | Store refresh tokens in DB (not stateless); allows targeted revocation |
+| Concurrent sessions | Store refresh tokens in DB; allows targeted revocation |
 
 ### 5.2 Input Validation & Injection
 
@@ -913,16 +944,17 @@ Changing the cutoff day does not immediately affect the active cycle:
 | Risk | Mitigation |
 |---|---|
 | Broken Object-Level Auth (BOLA) | Every query **must** include `WHERE user_id = :requestingUserId`; never trust a resource ID from the request body/params alone |
-| Horizontal privilege escalation | Middleware verifies the JWT and attaches `req.user`; all repository functions receive `userId` from `req.user.id`, not from params |
+| Horizontal privilege escalation | Middleware verifies the session token and resolves authenticated user context; repository functions receive `userId` from trusted auth context, not params |
 | Insecure direct object reference | Use opaque UUIDs (v4) as primary keys — never sequential integers |
 
 **Pattern for every protected DB query:**
-```ts
+```go
 // Safe — always scope to authenticated user
-const cycle = await db.cycles.findUnique({
-  where: { id: cycleId, userId: req.user.id }
-});
-if (!cycle) throw new NotFoundError();
+query := `SELECT id, start_date, end_date FROM cycles WHERE id = $1 AND user_id = $2`
+err := db.QueryRowContext(ctx, query, cycleID, authUserID).Scan(&cycle.ID, &cycle.StartDate, &cycle.EndDate)
+if err == sql.ErrNoRows {
+  return ErrNotFound
+}
 ```
 
 ### 5.4 Password Security
@@ -942,24 +974,24 @@ if (!cycle) throw new NotFoundError();
 ### 5.6 Transport Security
 
 - **HTTPS only** — enforce with HSTS (`Strict-Transport-Security: max-age=31536000; includeSubDomains`)
-- Reject any HTTP requests at the load balancer level
+- Reject any HTTP requests at the service edge (hosting or reverse proxy layer)
 - Enable **CORS** with a strict allowlist of mobile app origin identifiers
 
 ### 5.7 API Rate Limiting
 
 | Endpoint | Limit |
 |---|---|
-| `POST /auth/register` | 5 per IP per hour |
-| `POST /auth/login` | 5 per email per 15 min |
-| `POST /auth/verify-otp` | 5 attempts per OTP code |
-| `POST /auth/otp/resend` | 3 per email per 10 min |
+| `POST /account/register` | 5 per IP per hour |
+| `POST /account/login` | 5 per email per 15 min |
+| `POST /account/verify-otp` | 5 attempts per OTP code |
+| `POST /account/otp/resend` | 3 per email per 10 min |
 | All other endpoints | 300 requests per user per minute |
 
-Use a sliding window algorithm backed by Redis.
+Use a sliding window algorithm with a shared store (PostgreSQL table or in-memory store for MVP).
 
 ### 5.8 Logging & Monitoring
 
-- **Do not log** access tokens, refresh tokens, OTP codes, or passwords — even in debug mode
+- **Do not log** session tokens, refresh tokens, OTP codes, or passwords — even in debug mode
 - Log all **authentication events** (login attempt, OTP sent, OTP verified, token refresh, logout) with timestamp, userId (if known), IP, user agent
 - Log all **authorization failures** (403s) to detect probing
 - Set up alerts for: >10 consecutive login failures for a single email, unusual volume of OTP resends from a single IP
@@ -974,8 +1006,8 @@ Use a sliding window algorithm backed by Redis.
 
 | Secret | Recommended Storage |
 |---|---|
-| Database credentials | Secrets Manager / environment variable injected at runtime |
-| JWT private key (RS256) | Secrets Manager — load into memory at startup, never write to disk |
+| Database credentials | Environment variable or injected runtime secret |
+| Session signing/validation secret | Environment variable or secrets manager; never hardcode in repository |
 | Email provider API key | Environment variable / Secrets Manager |
 | OTP codes | Bcrypt-hashed in DB — raw value only in memory for the duration of the request |
 
@@ -987,44 +1019,50 @@ Use a sliding window algorithm backed by Redis.
 Client (React Native)
   │
   ▼
-API Gateway / Load Balancer
-  │  (TLS termination, CORS, rate limiting)
+Backend API Service (Go + Fiber)
   │
-  ▼
-Backend API (Node.js / Fastify or Express)
-  │
-  ├── PostgreSQL  ← primary data store
-  ├── Redis       ← rate limit counters, OTP attempt counters
-  └── Email Service (Resend / SendGrid) ← OTP delivery
+  ├── PostgreSQL (Supabase)  ← primary data store
+  ├── Email Service (Mailtrap in non-prod, transactional provider in prod)
+  ├── Object Storage (for temporary statement files)
+  └── Optional async worker for statement parsing
 ```
+
+The mobile app calls the service directly. No API Gateway layer is required for MVP.
 
 ### Recommended Tech Stack for Backend
 
 | Layer | Recommendation |
 |---|---|
-| Runtime | Node.js 20+ |
-| Framework | Fastify (or Express) |
-| ORM | Prisma or Drizzle |
-| Validation | Zod |
-| Auth helpers | `jsonwebtoken` (RS256), `bcryptjs` |
-| Email | Resend SDK or `@sendgrid/mail` |
-| Rate limiting | `@fastify/rate-limit` backed by Redis |
-| Testing | Vitest + Supertest |
-| DB migrations | Prisma Migrate or Flyway |
+| Runtime | Go 1.21+ |
+| Framework | Fiber v2 |
+| Database access | `database/sql` + `lib/pq` (or `pgx`) |
+| Validation | Request struct validation at handler boundary |
+| Auth helpers | `bcrypt` + UUID-based session and refresh tokens |
+| Email | Mailtrap (dev/staging), transactional provider for production |
+| Testing | `go test` |
+| DB migrations | Supabase migrations (`supabase/migrations`) |
 
 ### Environment Variables Required
 
 ```env
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-REDIS_URL=redis://host:6379
-JWT_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----...
-JWT_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----...
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=30d
-EMAIL_API_KEY=re_xxxx
-EMAIL_FROM=noreply@your-domain.com
+CONFIG_FILE_PATH=.config.yaml
+ENV=production
+DATABASE_PERSONAL_SERVICE_MASTER=postgresql://user:pass@host:5432/dbname
+APP_PORT=4040
+MAIN_APP_URL=https://your-mobile-app-landing-domain.com
+SECRET_TOKEN=replace_with_secure_random_value
+
+# Email provider
+MAIL_ENABLE_EMAIL=true
+MAIL_API_ENDPOINT=https://send.api.mailtrap.io
+MAIL_API_TOKEN=replace_me
+MAIL_FROM=noreply@your-domain.com
+MAIL_FROM_NAME=Expense Tracker Support
+
+# OTP/session settings
 OTP_EXPIRES_MINUTES=10
-NODE_ENV=production
+SESSION_TOKEN_TTL_HOURS=48
+REFRESH_TOKEN_TTL_HOURS=120
 ```
 
 ---
