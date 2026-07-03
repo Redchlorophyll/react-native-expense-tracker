@@ -207,6 +207,7 @@ created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 | `expenses-tracker` | GET | `/expenses-tracker/statements` | List statement upload jobs |
 | `expenses-tracker` | POST | `/expenses-tracker/statements` | Upload statement files |
 | `expenses-tracker` | GET | `/expenses-tracker/statements/jobs/:jobId` | Poll statement parse job |
+| `expenses-tracker` | POST | `/expenses-tracker/admin/adjustments` | Admin-only corrective adjustment for closed cycles |
 
 ---
 
@@ -458,6 +459,11 @@ Update a transaction's mutable fields (notes, category, payment method labels).
 
 **Note:** `amount`, `type`, `date`, `fromBankId`, `toBankId` are **immutable** after creation. Return `422` if client attempts to change them.
 
+**Business rules:**
+- If the transaction's cycle is closed (`cycle.is_closed = true`), reject update with `409 Conflict`.
+- If update changes transaction classification into or out of `investment`, adjust investment balance atomically in the same DB transaction.
+- Only transactions in the current active (open) cycle are editable by regular users.
+
 ---
 
 ### 3.3 `expenses-tracker` / cycles
@@ -531,6 +537,11 @@ Update a cycle — primarily used to **close** it.
 ```
 
 **Business rule:** Once `isClosed` is `true`, it cannot be set back to `false`.
+
+**Cycle closing policy (current iteration):**
+- Cycle closure is user-driven (manual action via `PATCH /expenses-tracker/cycles/:id`).
+- No automatic scheduler-based closing in current iteration.
+- Grace-window auto-close can be introduced in next iteration.
 
 ---
 
@@ -801,6 +812,43 @@ Poll the status of an async PDF parse job.
 
 ---
 
+### 3.7 `expenses-tracker` / admin adjustments
+
+#### `POST /expenses-tracker/admin/adjustments` 🔒
+Create an admin-only corrective entry for exceptional cases (for example, fixing historical data in closed cycles) without reopening cycles.
+
+**Request body:**
+```json
+{
+  "cycleId": "uuid",
+  "adjustmentType": "investment_balance",
+  "amountDelta": -250000,
+  "reason": "Correct misclassified transaction from prior cycle",
+  "referenceTransactionId": "uuid-or-null"
+}
+```
+
+**Response `201 Created`:**
+```json
+{
+  "data": {
+    "id": "adjustment-uuid",
+    "cycleId": "uuid",
+    "adjustmentType": "investment_balance",
+    "amountDelta": -250000,
+    "reason": "Correct misclassified transaction from prior cycle",
+    "createdBy": "admin-user-id",
+    "createdAt": "2026-07-03T10:00:00Z"
+  }
+}
+```
+
+**Authorization:**
+- Admin role required.
+- Must be auditable (who changed what and why).
+
+---
+
 ## 4. Backend Flow
 
 ### 4.1 Registration Flow
@@ -883,6 +931,8 @@ function ensureActiveCycle(userId):
 
 This runs on `GET /expenses-tracker/sync` and `GET /expenses-tracker/cycles`.
 
+Cycle closure itself remains manual in current iteration (no scheduler dependency).
+
 ### 4.5 Transfer Detection
 
 The app currently runs transfer detection client-side. On the backend, this should run after any batch import or sync:
@@ -913,6 +963,24 @@ Changing the cutoff day does not immediately affect the active cycle:
    c. Find the currently open cycle → return its endDate as "effectiveFrom"
    d. The next call to ensureActiveCycle (after current cycle closes) will use the new cutoff day
 ```
+
+### 4.7 Investment Balance Synchronization
+
+When updating a transaction, investment totals must remain consistent with transaction history:
+
+```
+On PATCH /expenses-tracker/transactions/:id:
+  1. Load existing transaction row (before update)
+  2. Reject if parent cycle is closed
+  3. Apply allowed field updates
+  4. If classification transitions affect investment:
+    - non-investment -> investment: add amount to investment balance
+    - investment -> non-investment: subtract amount from investment balance
+    - investment -> investment and amount changed: apply delta (newAmount - oldAmount)
+  5. Commit all changes in one DB transaction
+```
+
+This prevents drift between investment balance and underlying transactions.
 
 ---
 
@@ -1000,6 +1068,8 @@ Use a sliding window algorithm with a shared store (PostgreSQL table or in-memor
 
 - Wrap transfer-detection updates in a **database transaction** — both transaction records must be updated atomically or neither
 - Wrap cycle close + new cycle creation in a **database transaction**
+- On transaction update, synchronize investment balance changes in the **same database transaction** as the row update
+- Treat closed cycles as immutable for transaction edits (known product rule to avoid retroactive balance drift)
 - Use `updated_at` timestamps to enable optimistic concurrency in future
 
 ### 5.10 Secrets Management
